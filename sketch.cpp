@@ -18,6 +18,7 @@ LiquidCrystal lcd(8, 9, 10, 11, 12, 13);
 const byte CMD_CLEAR = 0x00;
 const byte CMD_WRITE_RAW = 0x01;
 const byte CMD_WRITE_PAGE = 0x02;
+const byte CMD_RESYNC = 0x03;
 
 void setup(void) {
   Serial.begin(9600);
@@ -75,6 +76,15 @@ void process_command(byte cmd)
 
     break;
   }
+  case CMD_RESYNC: {
+    delay(10);
+    for (int i = 0; i < 13; i++) {
+      Serial.write("\xff");
+      delay(10);
+    }
+    Serial.write((const uint8_t*)"\x00", 1);
+    break;
+  }
   default:
     break;
   };
@@ -102,12 +112,28 @@ void io_aware_delay(uint16_t ms) {
 
 }
 
+uint8_t adler8ish(const uint8_t *data, size_t len)
+{
+    uint16_t A = 1, B = 0;
+    for (unsigned int i = 0; i < len; i++) {
+        A += data[i];
+        B += A;
+    }
+    A = A % 13;
+    B = B % 13;
+
+    return (A << 4) | B;
+}
+
+
 void loop(void) {
   byte i;
   //byte present = 0;
   byte type_s;
   byte data[12];
   byte addr[8];
+
+  byte to_send[12];
 
   byte sensor_no = 0;
 
@@ -172,12 +198,12 @@ void loop(void) {
       //// default is 12 bit resolution, 750 ms conversion time
     }
 
-    Serial.write(sensor_no);
+    to_send[0] = sensor_no;
+    memcpy(&to_send[1], addr, sizeof(addr));
+    memcpy(&to_send[9], &raw, sizeof(raw));
+    to_send[11] = adler8ish(&to_send[0], 11);
     process_io();
-    Serial.write(addr, sizeof(addr));
-    process_io();
-    Serial.write((const uint8_t*)&raw, sizeof(raw));
-    process_io();
+    Serial.write(to_send, 12);
 
     sensor_no += 1;
     io_aware_delay(250);
